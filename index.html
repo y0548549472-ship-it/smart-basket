@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>סל חכם</title>
+<style>
+  :root { --p:#2563eb; --g:#16a34a; --bg:#f1f5f9; --card:#fff; --t:#0f172a; --l:#64748b; --r:14px; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--t); font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif; display:flex; justify-content:center; padding:14px; }
+  main { width:100%; max-width:720px; display:flex; flex-direction:column; gap:14px; }
+  h1 { margin:6px 0 0; text-align:center; color:var(--p); font-size:26px; }
+  #status { text-align:center; color:var(--l); font-size:13px; }
+  .card { background:var(--card); border-radius:var(--r); padding:16px; box-shadow:0 2px 10px rgba(0,0,0,.05); }
+  h2 { margin:0 0 10px; font-size:16px; }
+  input { width:100%; padding:14px; font-size:17px; border:1px solid #cbd5e1; border-radius:12px; background:#f8fafc; }
+  input:focus { outline:2px solid var(--p); background:#fff; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 12px; border-radius:10px; background:#f8fafc; margin-top:7px; }
+  .row .nm { flex:1; font-size:15px; }
+  .row small { color:var(--l); display:block; }
+  button { border:0; border-radius:10px; padding:10px 14px; font-size:15px; font-weight:700; color:#fff; background:var(--p); cursor:pointer; }
+  button.add { background:var(--g); }
+  button.x { background:#ef4444; padding:6px 11px; }
+  button.q { background:#e2e8f0; color:var(--t); padding:6px 12px; }
+  .qty { display:flex; align-items:center; gap:6px; }
+  .store { display:flex; justify-content:space-between; align-items:center; padding:14px; border-radius:12px; margin-top:8px; border:1px solid #e2e8f0; }
+  .store.best { border:2px solid var(--g); background:#f0fdf4; }
+  .total { font-size:20px; font-weight:800; }
+  .warn { color:#b45309; font-size:12px; }
+  .empty { color:var(--l); text-align:center; padding:10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>סל חכם 🛒</h1>
+  <div id="status">טוען מחירים…</div>
+
+  <div class="card">
+    <h2>חפש מוצר</h2>
+    <input id="q" type="search" placeholder="למשל: חלב תנובה 3%" autocomplete="off">
+    <div id="hits"></div>
+  </div>
+
+  <div class="card">
+    <h2>הרשימה שלי</h2>
+    <div id="list"></div>
+  </div>
+
+  <div class="card" id="resCard" style="display:none">
+    <h2>איפה הכי זול?</h2>
+    <div id="res"></div>
+  </div>
+</main>
+
+<script>
+let DB = null, list = [];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+try { list = JSON.parse(localStorage.getItem("basket") || "[]"); } catch (e) {}
+
+fetch("data/prices.json").then((r) => { if (!r.ok) throw 0; return r.json(); }).then((d) => {
+  DB = d;
+  const when = new Date(d.updated).toLocaleString("he-IL");
+  $("status").textContent = `${d.items.length.toLocaleString()} מוצרים · ${d.chains.map((c) => c.name).join(", ")} · עודכן ${when}`;
+  render();
+}).catch(() => { $("status").textContent = "לא נמצא קובץ מחירים. הרץ את העדכון (ראה README)."; });
+
+function save() { try { localStorage.setItem("basket", JSON.stringify(list)); } catch (e) {} }
+
+$("q").addEventListener("input", () => {
+  if (!DB) return;
+  const words = $("q").value.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) { $("hits").innerHTML = ""; return; }
+  const out = [];
+  for (const it of DB.items) {
+    if (words.every((w) => it[1].includes(w))) { out.push(it); if (out.length >= 15) break; }
+  }
+  $("hits").innerHTML = out.map((it) => {
+    const known = it[2].filter((p) => p != null);
+    return `<div class="row"><div class="nm">${esc(it[1])}<small>${known.length} רשתות · מ-${Math.min(...known).toFixed(2)} ₪</small></div>
+      <button class="add" onclick="addItem('${it[0]}')">הוסף</button></div>`;
+  }).join("") || '<div class="empty">לא נמצא</div>';
+});
+
+function addItem(code) {
+  const f = list.find((x) => x.code === code);
+  if (f) f.qty++; else list.push({ code, qty: 1 });
+  save(); render();
+}
+function chg(code, d) {
+  const f = list.find((x) => x.code === code);
+  f.qty += d; if (f.qty < 1) list = list.filter((x) => x !== f);
+  save(); render();
+}
+function removeItem(code) { list = list.filter((x) => x.code !== code); save(); render(); }
+
+function render() {
+  if (!DB) return;
+  const by = new Map(DB.items.map((it) => [it[0], it]));
+  $("list").innerHTML = list.map((l) => {
+    const it = by.get(l.code);
+    return `<div class="row"><div class="nm">${esc(it ? it[1] : l.code)}</div>
+      <div class="qty"><button class="q" onclick="chg('${l.code}',-1)">−</button><b>${l.qty}</b><button class="q" onclick="chg('${l.code}',1)">+</button></div>
+      <button class="x" onclick="removeItem('${l.code}')">✕</button></div>`;
+  }).join("") || '<div class="empty">הרשימה ריקה — חפש מוצר למעלה</div>';
+
+  if (!list.length) { $("resCard").style.display = "none"; return; }
+  const rows = DB.chains.map((c, i) => {
+    let total = 0, missing = 0;
+    for (const l of list) {
+      const p = by.get(l.code)?.[2][i];
+      if (p == null) missing++; else total += p * l.qty;
+    }
+    return { name: c.name, total, missing };
+  }).sort((a, b) => a.missing - b.missing || a.total - b.total);
+  $("resCard").style.display = "block";
+  $("res").innerHTML = rows.map((r, i) => `<div class="store ${i === 0 ? "best" : ""}">
+    <div><b>${r.name}</b>${i === 0 ? " ✅ הכי משתלם" : ""}${r.missing ? `<div class="warn">חסרים ${r.missing} מוצרים ברשת זו</div>` : ""}</div>
+    <div class="total">${r.total.toFixed(2)} ₪</div></div>`).join("");
+}
+</script>
+</body>
+</html>
